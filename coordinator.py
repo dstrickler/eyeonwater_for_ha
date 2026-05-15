@@ -78,10 +78,14 @@ class EyeOnWaterCoordinator(DataUpdateCoordinator[EyeOnWaterData]):
             if historical_data and len(historical_data) > 0:
                 data.unit = str(historical_data[0].unit).replace("NativeUnits.", "")
 
-            # Current reading
+            # Current reading - prefer meter.current_read, fall back to latest historical
             if hasattr(meter, "current_read") and meter.current_read:
                 data.current_reading = float(meter.current_read.reading)
                 data.reading_timestamp = meter.current_read.dt.isoformat()
+            elif historical_data:
+                latest = historical_data[-1]
+                data.current_reading = float(latest.reading)
+                data.reading_timestamp = latest.dt.isoformat()
 
             # Historical data
             data.historical_data = [
