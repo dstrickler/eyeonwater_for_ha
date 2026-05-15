@@ -92,7 +92,7 @@ class EyeOnWaterUsage(EyeOnWaterSensorBase):
 
     _attr_name = "Usage (3 day)"
     _attr_device_class = SensorDeviceClass.WATER
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfVolume.GALLONS
     _attr_icon = "mdi:water-pump"
 
