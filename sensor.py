@@ -1,6 +1,10 @@
 """Sensor platform for EyeOnWater."""
 from __future__ import annotations
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -23,13 +27,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up EyeOnWater sensors from a config entry."""
     coordinator: EyeOnWaterCoordinator = hass.data[DOMAIN][entry.entry_id]
+    _LOGGER.debug("Setting up EyeOnWater sensors, coordinator data: %s", coordinator.data)
 
-    async_add_entities(
-        [
-            EyeOnWaterCurrentReading(coordinator, entry),
-            EyeOnWaterUsage(coordinator, entry),
-        ]
-    )
+    entities = [
+        EyeOnWaterCurrentReading(coordinator, entry),
+        EyeOnWaterUsage(coordinator, entry),
+    ]
+    _LOGGER.debug("Adding %d EyeOnWater entities", len(entities))
+    async_add_entities(entities)
 
 
 class EyeOnWaterSensorBase(CoordinatorEntity[EyeOnWaterCoordinator], SensorEntity):
