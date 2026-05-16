@@ -1,18 +1,25 @@
 """DataUpdateCoordinator for EyeOnWater."""
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 import aiohttp
 from pyonwater import Account, Client
 
+from homeassistant.components.recorder.statistics import (
+    StatisticData,
+    StatisticMetaData,
+    async_add_external_statistics,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_HOSTNAME, DEFAULT_SCAN_INTERVAL
+from .const import CONF_HOSTNAME, DEFAULT_SCAN_INTERVAL, DOMAIN
+
+EXTERNAL_STAT_ID = f"{DOMAIN}:meter_reading"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,9 +115,51 @@ class EyeOnWaterCoordinator(DataUpdateCoordinator[EyeOnWaterData]):
             data.data_points = len(data.historical_data)
             data.alert_active = hasattr(meter, "alert") and meter.alert is not None
 
+            self._push_external_statistics(data)
+
             return data
 
         except UpdateFailed:
             raise
         except Exception as err:
             raise UpdateFailed(f"Error communicating with EyeOnWater: {err}") from err
+
+    def _push_external_statistics(self, data: EyeOnWaterData) -> None:
+        """Push hourly readings to long-term stats with the meter's actual timestamps.
+
+        The meter publishes hourly cumulative readings with timestamps that lag
+        observation time by ~half a day. HA's recorder buckets `total_increasing`
+        sensors by observe-time, which puts yesterday's consumption into today's
+        bucket on the Energy dashboard. Bypass that by importing external stats
+        keyed off the reading's own timestamp.
+        """
+        if not data.historical_data:
+            return
+
+        stats: list[StatisticData] = []
+        for dp in data.historical_data:
+            try:
+                dt = datetime.fromisoformat(dp["timestamp"])
+            except (ValueError, KeyError):
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_hour = dt.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+            reading = float(dp["reading"])
+            # sum = cumulative meter reading (monotonically increasing); Energy
+            # dashboard computes consumption as sum[end] - sum[start], which
+            # equals reading[end] - reading[start] = gallons used in that period.
+            stats.append(StatisticData(start=dt_hour, state=reading, sum=reading))
+
+        if not stats:
+            return
+
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name="EyeOnWater Meter Reading",
+            source=DOMAIN,
+            statistic_id=EXTERNAL_STAT_ID,
+            unit_of_measurement=data.unit.lower() if data.unit else "gal",
+        )
+        async_add_external_statistics(self.hass, metadata, stats)
